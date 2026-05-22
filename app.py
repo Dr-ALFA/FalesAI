@@ -369,23 +369,6 @@ with controls:
     num_images = st.slider(text["images"], 2, 7, 4)
     button_label = text["create"] if not result else text["recreate"]
     generate = st.button(button_label, type="primary", use_container_width=True)
-    st.markdown(
-        f"""
-        <div class="workflow-step">
-            <strong>{text["step_writer"]}</strong>
-            <span>{text["step_writer_copy"]}</span>
-        </div>
-        <div class="workflow-step">
-            <strong>{text["step_images"]}</strong>
-            <span>{text["step_images_copy"]}</span>
-        </div>
-        <div class="workflow-step">
-            <strong>{text["step_editor"]}</strong>
-            <span>{text["step_editor_copy"]}</span>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
     if generate:
         progress_labels = {
             "essay_started": text["phase_essay"],
@@ -424,6 +407,23 @@ with controls:
             )
             status.update(label=text["ready"], state="complete")
         st.rerun()
+    st.markdown(
+        f"""
+        <div class="workflow-step">
+            <strong>{text["step_writer"]}</strong>
+            <span>{text["step_writer_copy"]}</span>
+        </div>
+        <div class="workflow-step">
+            <strong>{text["step_images"]}</strong>
+            <span>{text["step_images_copy"]}</span>
+        </div>
+        <div class="workflow-step">
+            <strong>{text["step_editor"]}</strong>
+            <span>{text["step_editor_copy"]}</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 with reader:
     if not result:
