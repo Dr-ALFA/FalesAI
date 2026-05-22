@@ -1,330 +1,447 @@
 """
-🇵🇸 FalesAI — Palestine AI Content System
-==========================================
-Palestine-focused multi-agent system. Bilingual EN/AR with RTL support.
+FelasAI reader experience.
 """
 
-import streamlit as st
-import os
+from __future__ import annotations
+
 import json
+from html import escape
+
+import mistune
+import streamlit as st
 from dotenv import load_dotenv
-from translations import t
+
+from agents import run_orchestrator
 
 load_dotenv()
 
 TOPIC = "Palestine"
+render_markdown = mistune.create_markdown(escape=True)
+UI_TEXT = {
+    "ar": {
+        "deck": "مقالة مصورة عن فلسطين، معدة للقراءة.",
+        "panel_title": "مقالة فلسطين",
+        "panel_copy": "تنشأ المقالة عبر ثلاث خطوات تحريرية متتابعة.",
+        "ui_language": "لغة الواجهة",
+        "article_language": "لغة المقالة",
+        "article_length": "طول المقالة",
+        "images": "عدد الصور",
+        "create": "أنشيء المقالة",
+        "recreate": "أنشيء نسخة جديدة",
+        "step_writer": "1. وكيل كتابة المقالة",
+        "step_writer_copy": "يكتب النص الأساسي عن فلسطين.",
+        "step_images": "2. وكيل الصور",
+        "step_images_copy": "يختار صورا تدعم فقرات المقالة.",
+        "step_editor": "3. وكيل تنظيم المحتوى",
+        "step_editor_copy": "ينظم النص والصور في عرض مريح للقراءة.",
+        "starting": "بدأ إعداد المقالة...",
+        "boot": "تهيئة الوكلاء",
+        "phase_essay": "كتابة المقالة",
+        "phase_images": "اختيار الصور",
+        "phase_editor": "تنظيم المحتوى",
+        "ready": "المقالة جاهزة.",
+        "empty": "ستظهر المقالة المصورة هنا بعد إنشائها.",
+        "download": "تحميل المقالة",
+        "done_essay": "اكتملت مسودة المقالة.",
+        "done_images": "اكتمل اختيار الصور المناسبة.",
+        "done_editor": "اكتملت النسخة النهائية للمقالة.",
+        "start_essay": "وكيل كتابة المقالة يكتب النص الأساسي.",
+        "start_images": "وكيل الصور يبحث عن صور مناسبة لفقرات المقالة.",
+        "start_editor": "وكيل تنظيم المحتوى ينسق النص والصور.",
+    },
+    "en": {
+        "deck": "An illustrated article about Palestine, prepared for reading.",
+        "panel_title": "Palestine Article",
+        "panel_copy": "The article is prepared in three editorial steps.",
+        "ui_language": "Interface language",
+        "article_language": "Article language",
+        "article_length": "Article length",
+        "images": "Images",
+        "create": "Create article",
+        "recreate": "Create a new version",
+        "step_writer": "1. Essay Writer Agent",
+        "step_writer_copy": "Writes the core article about Palestine.",
+        "step_images": "2. Image Curator Agent",
+        "step_images_copy": "Selects images that support the article.",
+        "step_editor": "3. Content Organizer Agent",
+        "step_editor_copy": "Shapes text and images into a reading experience.",
+        "starting": "Article preparation started...",
+        "boot": "Preparing agents",
+        "phase_essay": "Writing article",
+        "phase_images": "Selecting images",
+        "phase_editor": "Organizing content",
+        "ready": "Article ready.",
+        "empty": "The illustrated article will appear here after it is created.",
+        "download": "Download article",
+        "done_essay": "The article draft is complete.",
+        "done_images": "The image selection is complete.",
+        "done_editor": "The final article is ready.",
+        "start_essay": "The writing agent is drafting the article.",
+        "start_images": "The image agent is finding images for the article.",
+        "start_editor": "The editor agent is arranging text and images.",
+    },
+}
+ARTICLE_LANGUAGES = {"العربية": "Arabic", "English": "English"}
 
 st.set_page_config(
-    page_title="FalesAI — Palestine",
+    page_title="Palestine | FelasAI",
     page_icon="🇵🇸",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
-if "lang" not in st.session_state:
-    st.session_state["lang"] = "en"
-lang = st.session_state["lang"]
-is_rtl = lang == "ar"
-direction = "rtl" if is_rtl else "ltr"
-font_family = "'Cairo', 'Inter', sans-serif" if is_rtl else "'Inter', sans-serif"
-title_font = "'Cairo', serif" if is_rtl else "'Playfair Display', serif"
-text_align = "right" if is_rtl else "left"
-arrow = "←" if is_rtl else "→"
 
-# ── CSS ───────────────────────────────────────────────────────────────
-st.markdown(f"""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:wght@600;700;800&family=Cairo:wght@300;400;500;600;700;800&display=swap');
-
-:root {{
-    --bg-card: rgba(255,255,255,0.03);
-    --border-subtle: rgba(255,255,255,0.08);
-    --text-primary: #f0f0f5;
-    --text-secondary: #8b8b9e;
-    --pal-green: #009736;
-    --pal-red: #ce1126;
-    --pal-black: #1a1a2e;
-    --gradient-pal: linear-gradient(135deg, #ce1126, #009736);
-    --gradient-glass: linear-gradient(135deg, rgba(0,151,54,0.08), rgba(206,17,38,0.05));
-    --shadow-glow: 0 0 40px rgba(0,151,54,0.15);
-}}
-
-.stApp {{ font-family: {font_family}; direction: {direction}; }}
-
-/* Hero */
-.hero-container {{ text-align: center; padding: 2rem 1rem 0.5rem; }}
-.hero-flag {{ font-size: 4.5rem; margin-bottom: 0.5rem;
-    animation: pulse 2.5s ease-in-out infinite; }}
-@keyframes pulse {{ 0%,100% {{ transform: scale(1); }} 50% {{ transform: scale(1.08); }} }}
-.hero-title {{
-    font-family: {title_font}; font-size: 3rem; font-weight: 800;
-    background: var(--gradient-pal); -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent; background-clip: text;
-    margin-bottom: 0.4rem; line-height: 1.4;
-}}
-.hero-subtitle {{ font-size: 1.05rem; color: var(--text-secondary); font-weight: 300; line-height: 1.6; }}
-.pal-stripe {{
-    height: 4px; border-radius: 2px; margin: 1.2rem auto;
-    max-width: 400px;
-    background: linear-gradient(90deg, #1a1a2e 25%, #009736 25%, #009736 50%, #fff 50%, #fff 75%, #ce1126 75%);
-}}
-
-/* Agent cards */
-.agent-card {{
-    background: var(--gradient-glass); border: 1px solid var(--border-subtle);
-    border-radius: 16px; padding: 1.5rem; margin-bottom: 1rem;
-    backdrop-filter: blur(10px); transition: all 0.3s ease;
-    text-align: {text_align};
-}}
-.agent-card:hover {{ border-color: var(--pal-green); box-shadow: var(--shadow-glow); transform: translateY(-2px); }}
-.agent-icon {{ font-size: 2rem; margin-bottom: 0.5rem; }}
-.agent-name {{ font-weight: 700; font-size: 1rem; color: var(--text-primary); margin-bottom: 0.3rem; }}
-.agent-desc {{ font-size: 0.85rem; color: var(--text-secondary); line-height: 1.7; }}
-
-/* Pipeline */
-.pipeline-flow {{
-    display: flex; align-items: center; justify-content: center;
-    gap: 8px; padding: 1rem; flex-wrap: wrap; direction: {direction};
-}}
-.pipeline-step {{
-    background: var(--bg-card); border: 1px solid var(--border-subtle);
-    border-radius: 12px; padding: 10px 18px; text-align: center; min-width: 130px;
-}}
-.pipeline-arrow {{ color: var(--text-secondary); font-size: 1.5rem; }}
-
-/* Image gallery */
-.image-card {{
-    background: var(--bg-card); border: 1px solid var(--border-subtle);
-    border-radius: 16px; overflow: hidden; transition: all 0.3s ease; margin-bottom: 1rem;
-}}
-.image-card:hover {{ border-color: var(--pal-red); box-shadow: 0 0 30px rgba(206,17,38,0.15); transform: translateY(-3px); }}
-.image-card img {{ width: 100%; height: 200px; object-fit: cover; }}
-.image-card-body {{ padding: 1rem; text-align: {text_align}; }}
-.image-card-title {{ font-weight: 700; color: var(--text-primary); margin-bottom: 0.3rem; font-size: 0.95rem; }}
-.image-card-desc {{ font-size: 0.82rem; color: var(--text-secondary); line-height: 1.6; }}
-.image-card-category {{
-    display: inline-block; padding: 3px 10px; border-radius: 10px;
-    font-size: 0.7rem; font-weight: 600; background: rgba(0,151,54,0.15);
-    color: var(--pal-green); margin-top: 0.5rem;
-}}
-
-[data-testid="stSidebar"] {{
-    background: linear-gradient(180deg, #0a0f0a 0%, #0d1117 40%, #111827 100%);
-    border-right: 1px solid rgba(0,151,54,0.15);
-}}
-
-.stDownloadButton > button {{
-    background: var(--gradient-pal) !important; color: white !important;
-    border: none !important; border-radius: 12px !important;
-    padding: 0.6rem 2rem !important; font-weight: 600 !important;
-}}
-.stDownloadButton > button:hover {{ transform: translateY(-2px) !important; box-shadow: 0 8px 25px rgba(0,151,54,0.3) !important; }}
-</style>
-""", unsafe_allow_html=True)
+def read_images(raw_images: str) -> list[dict]:
+    try:
+        parsed = json.loads(raw_images)
+    except json.JSONDecodeError:
+        return []
+    return parsed if isinstance(parsed, list) else []
 
 
-# ══════════════════════════════════════════════════════════════════════
-#  SIDEBAR
-# ══════════════════════════════════════════════════════════════════════
-with st.sidebar:
-    st.markdown(f"""
-    <div style="text-align:center; padding: 1.2rem 0;">
-        <div style="width:60px; height:60px; margin:0 auto 10px; border-radius:16px;
-                    background: linear-gradient(135deg, #ce1126, #009736);
-                    display:flex; align-items:center; justify-content:center;
-                    font-size:1.6rem; font-weight:800; color:#fff;
-                    box-shadow: 0 4px 20px rgba(0,151,54,0.3);
-                    font-family: {title_font};">F</div>
-        <div style="font-family:{title_font}; font-size:1.5rem; font-weight:800;
-                    background: linear-gradient(135deg, #ce1126, #ff6b6b, #009736);
-                    -webkit-background-clip:text; -webkit-text-fill-color:transparent;
-                    letter-spacing: 1px;">
-            FalesAI
-        </div>
-        <div style="font-size:0.75rem; color:#6b7280; margin-top:4px; letter-spacing:0.5px;">
-            {t("brand_subtitle", lang)}
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+def first_image(images: list[dict]) -> dict:
+    for image in images:
+        if image.get("image_url"):
+            return image
+    return {}
 
-    st.markdown("---")
 
-    # Language toggle
-    lang_options = {"English 🇬🇧": "en", "العربية 🇵🇸": "ar"}
-    current_label = [k for k, v in lang_options.items() if v == lang][0]
-    selected = st.radio(
-        t("lang_label", lang),
-        list(lang_options.keys()),
-        index=list(lang_options.keys()).index(current_label),
+def render_brand(text: dict[str, str]) -> None:
+    st.markdown(
+        f"""
+        <header class="masthead">
+            <div class="flagline"></div>
+            <h1>FelasAI</h1>
+            <p class="signature">By DrALFA</p>
+            <p class="deck">{text["deck"]}</p>
+        </header>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_cover(image: dict) -> None:
+    if not image.get("image_url"):
+        return
+    url = escape(str(image["image_url"]))
+    alt = escape(str(image.get("title", "Palestine")))
+    caption = escape(str(image.get("title", "Palestine")))
+    st.markdown(
+        f"""
+        <figure class="cover">
+            <img src="{url}" alt="{alt}">
+            <figcaption>{caption}</figcaption>
+        </figure>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+st.markdown(
+    """
+    <style>
+    :root {
+        --ink: #171411;
+        --paper: #f7f1e5;
+        --paper-light: #fffaf0;
+        --muted: #675d52;
+        --line: rgba(23, 20, 17, .15);
+        --red: #ad2133;
+        --green: #17633d;
+    }
+    .stApp {
+        background:
+            linear-gradient(180deg, rgba(255,250,240,.82), rgba(247,241,229,.98)),
+            var(--paper);
+        color: var(--ink);
+    }
+    [data-testid="stHeader"] { background: transparent; }
+    .block-container {
+        max-width: 1280px;
+        padding-top: 1.25rem;
+        padding-bottom: 4rem;
+    }
+    .masthead {
+        max-width: 860px;
+        padding: 1rem 0 1.35rem;
+    }
+    .flagline {
+        background: linear-gradient(90deg, #111 0 25%, #fff 25% 50%, #17633d 50% 75%, #ad2133 75%);
+        height: 5px;
+        margin-bottom: 2rem;
+        width: min(320px, 70vw);
+    }
+    .masthead h1 {
+        color: var(--ink);
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: clamp(3.4rem, 8vw, 7.6rem);
+        font-weight: 700;
+        letter-spacing: 0;
+        line-height: .9;
+        margin: 0 0 .9rem;
+    }
+    .signature {
+        color: var(--red);
+        font-family: system-ui, sans-serif;
+        font-size: .82rem;
+        font-weight: 600;
+        letter-spacing: 0;
+        margin: -.3rem 0 .8rem;
+    }
+    .deck {
+        color: var(--muted);
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: clamp(1.18rem, 2vw, 1.55rem);
+        line-height: 1.45;
+        margin: 0;
+    }
+    .cover {
+        border-bottom: 1px solid var(--line);
+        margin: 0 0 1.4rem;
+        padding-bottom: .7rem;
+    }
+    .cover img, .cover.placeholder {
+        aspect-ratio: 16 / 8;
+        background: linear-gradient(135deg, #1a1a1a, #17633d 54%, #ad2133);
+        display: block;
+        max-height: 610px;
+        object-fit: cover;
+        width: 100%;
+    }
+    .cover figcaption {
+        color: var(--muted);
+        font-size: .84rem;
+        line-height: 1.4;
+        padding-top: .55rem;
+    }
+    .control-panel {
+        background: rgba(255,250,240,.72);
+        border-top: 1px solid var(--line);
+        padding: 1.2rem 0;
+        position: sticky;
+        top: 1rem;
+    }
+    .control-panel h2 {
+        color: var(--ink);
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 1.7rem;
+        letter-spacing: 0;
+        line-height: 1.2;
+        margin: 0 0 .5rem;
+    }
+    .control-panel p {
+        color: var(--muted);
+        line-height: 1.65;
+        margin-bottom: 1rem;
+    }
+    .workflow-step {
+        border-top: 1px solid var(--line);
+        margin-top: .9rem;
+        padding-top: .9rem;
+    }
+    .workflow-step strong {
+        color: var(--green);
+        display: block;
+        font-size: .92rem;
+        margin-bottom: .22rem;
+    }
+    .workflow-step span {
+        color: var(--muted);
+        display: block;
+        font-size: .92rem;
+        line-height: 1.5;
+    }
+    .article {
+        background: var(--paper-light);
+        border-top: 1px solid var(--line);
+        box-shadow: 0 18px 55px rgba(44, 29, 12, .08);
+        margin: 0 auto;
+        max-width: 850px;
+        padding: clamp(1.2rem, 4vw, 4rem);
+    }
+    .article.rtl {
+        direction: rtl;
+        text-align: right;
+    }
+    .article h1 {
+        color: var(--ink);
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: clamp(2rem, 4vw, 3.4rem);
+        letter-spacing: 0;
+        line-height: 1.08;
+        margin-top: 0;
+    }
+    .article h2 {
+        border-top: 1px solid var(--line);
+        color: var(--ink);
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: clamp(1.45rem, 2.4vw, 2.1rem);
+        letter-spacing: 0;
+        line-height: 1.2;
+        margin-top: 2.5rem;
+        padding-top: 1.7rem;
+    }
+    .article p, .article li {
+        color: var(--ink);
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 1.16rem;
+        line-height: 1.82;
+    }
+    .article em:first-child {
+        color: var(--muted);
+        font-size: 1.24rem;
+        line-height: 1.65;
+    }
+    .article img {
+        border-radius: 3px;
+        display: block;
+        margin: 2rem auto .65rem;
+        max-height: 580px;
+        object-fit: cover;
+        width: 100%;
+    }
+    .article img + em, .article p:has(img) + p em {
+        color: var(--muted);
+        display: block;
+        font-family: system-ui, sans-serif;
+        font-size: .88rem;
+        line-height: 1.5;
+    }
+    .reader-note {
+        color: var(--muted);
+        border-top: 1px solid var(--line);
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: clamp(1.2rem, 2vw, 1.65rem);
+        line-height: 1.55;
+        margin: 0;
+        padding-top: 1.5rem;
+    }
+    .stButton button, .stDownloadButton button {
+        border-radius: 4px;
+        min-height: 2.75rem;
+    }
+    @media (max-width: 720px) {
+        .block-container { padding-left: 1rem; padding-right: 1rem; }
+        .control-panel { position: static; }
+        .article { padding: 1.25rem; }
+        .article p, .article li { font-size: 1.05rem; line-height: 1.72; }
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+result = st.session_state.get("run_result")
+images = read_images(result["images"]) if result else []
+ui_language = st.session_state.get("ui_language", "ar")
+text = UI_TEXT[ui_language]
+render_brand(text)
+
+controls, reader = st.columns([.82, 2.18], gap="large")
+
+with controls:
+    ui_choice = st.radio(
+        text["ui_language"],
+        ["العربية", "English"],
+        index=0 if ui_language == "ar" else 1,
         horizontal=True,
     )
-    if lang_options[selected] != lang:
-        st.session_state["lang"] = lang_options[selected]
+    selected_ui_language = "ar" if ui_choice == "العربية" else "en"
+    if selected_ui_language != ui_language:
+        st.session_state["ui_language"] = selected_ui_language
+        st.rerun()
+    text = UI_TEXT[selected_ui_language]
+    st.markdown(
+        f"""
+        <section class="control-panel">
+            <h2>{text["panel_title"]}</h2>
+            <p>{text["panel_copy"]}</p>
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
+    article_options = list(ARTICLE_LANGUAGES)
+    article_index = 0 if st.session_state.get("article_language", "Arabic") == "Arabic" else 1
+    article_choice = st.radio(text["article_language"], article_options, index=article_index, horizontal=True)
+    article_language = ARTICLE_LANGUAGES[article_choice]
+    st.session_state["article_language"] = article_language
+    word_count = st.slider(text["article_length"], 700, 2400, 1400, 100)
+    num_images = st.slider(text["images"], 2, 7, 4)
+    button_label = text["create"] if not result else text["recreate"]
+    generate = st.button(button_label, type="primary", use_container_width=True)
+    st.markdown(
+        f"""
+        <div class="workflow-step">
+            <strong>{text["step_writer"]}</strong>
+            <span>{text["step_writer_copy"]}</span>
+        </div>
+        <div class="workflow-step">
+            <strong>{text["step_images"]}</strong>
+            <span>{text["step_images_copy"]}</span>
+        </div>
+        <div class="workflow-step">
+            <strong>{text["step_editor"]}</strong>
+            <span>{text["step_editor_copy"]}</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    if generate:
+        progress_labels = {
+            "essay_started": text["phase_essay"],
+            "images_started": text["phase_images"],
+            "organizer_started": text["phase_editor"],
+        }
+        progress_messages = {
+            "essay_started": text["start_essay"],
+            "images_started": text["start_images"],
+            "organizer_started": text["start_editor"],
+            "essay_done": text["done_essay"],
+            "images_done": text["done_images"],
+            "organizer_done": text["done_editor"],
+        }
+
+        with st.status(text["starting"], expanded=True) as status:
+            progress_bar = st.progress(0, text=text["boot"])
+            completed_steps = {"essay_done": 34, "images_done": 67, "organizer_done": 100}
+
+            def show_progress(phase: str, message: str) -> None:
+                display_message = progress_messages.get(phase, message)
+                if phase in progress_labels:
+                    status.update(label=progress_labels[phase], state="running")
+                if phase in completed_steps:
+                    progress_bar.progress(completed_steps[phase], text=display_message)
+                    st.write(f"✓ {display_message}")
+                else:
+                    st.write(display_message)
+
+            st.session_state["run_result"] = run_orchestrator(
+                TOPIC,
+                word_count=word_count,
+                num_images=num_images,
+                article_language=article_language,
+                progress_callback=show_progress,
+            )
+            status.update(label=text["ready"], state="complete")
         st.rerun()
 
-    st.markdown("---")
+with reader:
+    if not result:
+        st.markdown(
+            f'<p class="reader-note">{text["empty"]}</p>',
+            unsafe_allow_html=True,
+        )
+        st.stop()
 
-    st.markdown(t("agent_team", lang))
-    for icon, name, desc in t("agents", lang):
-        st.markdown(f"""
-        <div class="agent-card">
-            <div class="agent-icon">{icon}</div>
-            <div class="agent-name">{name}</div>
-            <div class="agent-desc">{desc}</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    st.markdown("---")
-    st.markdown(t("settings", lang))
-    word_count = st.slider(t("word_count_label", lang), 500, 3000, 1500, 100)
-    num_images = st.slider(t("num_images_label", lang), 3, 10, 6)
-
-    st.markdown("---")
-    st.markdown(f'<div style="text-align:center; padding:1rem 0; font-size:0.7rem; color:#64748b;">{t("footer", lang)}</div>', unsafe_allow_html=True)
-
-
-# ══════════════════════════════════════════════════════════════════════
-#  MAIN CONTENT
-# ══════════════════════════════════════════════════════════════════════
-st.markdown(f"""
-<div class="hero-container">
-    <div class="hero-flag" style="font-family:{title_font}; font-size:3.5rem; font-weight:800;
-        background: var(--gradient-pal); -webkit-background-clip:text;
-        -webkit-text-fill-color:transparent; background-clip:text;">FalesAI</div>
-    <div class="hero-title">{t("hero_title", lang)}</div>
-    <div class="hero-subtitle">{t("hero_subtitle", lang)}</div>
-    <div class="pal-stripe"></div>
-</div>
-""", unsafe_allow_html=True)
-
-# Pipeline
-icons = ["✍️", "🖼️", "📐", "📄"]
-steps = t("pipeline_steps", lang)
-ph = '<div class="pipeline-flow">'
-for i, (ic, lb) in enumerate(zip(icons, steps)):
-    ph += f'<div class="pipeline-step"><div style="font-size:1.3rem;">{ic}</div><div style="font-size:0.8rem;font-weight:600;">{lb}</div></div>'
-    if i < len(steps) - 1:
-        ph += f'<div class="pipeline-arrow">{arrow}</div>'
-ph += '</div>'
-st.markdown(ph, unsafe_allow_html=True)
-
-# Generate button (no topic input — Palestine only)
-run_button = st.button(t("generate_btn", lang), use_container_width=True, type="primary")
-
-
-# ══════════════════════════════════════════════════════════════════════
-#  EXECUTION
-# ══════════════════════════════════════════════════════════════════════
-if run_button:
-    st.session_state["running"] = True
-    with st.container():
-        st.markdown("---")
-        st.markdown(t("pipeline_progress", lang))
-
-        with st.status(t("essay_status_running", lang), expanded=True) as s1:
-            st.write(t("essay_topic_line", lang))
-            st.write(t("essay_target_line", lang).format(wc=word_count))
-            from tools.essay_tool import essay_writer_tool
-            essay_result = essay_writer_tool.invoke({"topic": TOPIC, "word_count": word_count})
-            word_ct = len(essay_result.split())
-            st.write(t("essay_complete_line", lang).format(wc=word_ct))
-            s1.update(label=t("essay_status_done", lang), state="complete")
-
-        with st.status(t("image_status_running", lang), expanded=True) as s2:
-            st.write(t("image_search_line", lang).format(n=num_images))
-            from tools.image_tool import image_suggester_tool
-            images_result = image_suggester_tool.invoke({"topic": TOPIC, "num_images": num_images})
-            try:
-                images_list = json.loads(images_result)
-                st.write(t("image_found_line", lang).format(n=len(images_list)))
-            except json.JSONDecodeError:
-                images_list = []
-                st.write(t("image_fallback_line", lang))
-            s2.update(label=t("image_status_done", lang), state="complete")
-
-        with st.status(t("org_status_running", lang), expanded=True) as s3:
-            st.write(t("org_merge_line", lang))
-            from tools.organizer_tool import content_organizer_tool
-            final_doc = content_organizer_tool.invoke({"essay": essay_result, "image_suggestions": images_result})
-            st.write(t("org_done_line", lang))
-            s3.update(label=t("org_status_done", lang), state="complete")
-
-    st.session_state.update({
-        "essay": essay_result, "images": images_result,
-        "images_list": images_list, "final_doc": final_doc,
-        "word_count": word_ct, "topic": TOPIC, "running": False,
-    })
-
-
-# ══════════════════════════════════════════════════════════════════════
-#  RESULTS
-# ══════════════════════════════════════════════════════════════════════
-if st.session_state.get("final_doc"):
-    st.markdown("---")
-    essay_text = st.session_state.get("essay", "")
-    imgs = st.session_state.get("images_list", [])
-    wc = st.session_state.get("word_count", 0)
-
-    c1, c2, c3, c4 = st.columns(4)
-    with c1: st.metric(t("metric_words", lang), f"{wc:,}")
-    with c2: st.metric(t("metric_images", lang), len(imgs))
-    with c3: st.metric(t("metric_paragraphs", lang), essay_text.count("\n\n") + 1 if essay_text else 0)
-    with c4: st.metric(t("metric_read_time", lang), t("read_time_unit", lang).format(m=max(1, wc // 200)))
-
-    st.markdown("---")
-    tab1, tab2, tab3, tab4 = st.tabs([t("tab_final", lang), t("tab_essay", lang), t("tab_gallery", lang), t("tab_logs", lang)])
-
-    with tab1:
-        st.markdown(st.session_state["final_doc"])
-        st.markdown("---")
-        st.download_button(t("download_doc", lang), st.session_state["final_doc"], "palestine_document.md", "text/markdown", use_container_width=True)
-
-    with tab2:
-        st.markdown(st.session_state["essay"])
-        st.markdown("---")
-        st.download_button(t("download_essay", lang), st.session_state["essay"], "palestine_essay.md", "text/markdown", use_container_width=True)
-
-    with tab3:
-        if imgs:
-            cols = st.columns(3)
-            for idx, img in enumerate(imgs):
-                with cols[idx % 3]:
-                    st.markdown(f"""
-                    <div class="image-card">
-                        <img src="{img.get('image_url','')}" alt="{img.get('title','')}"
-                             onerror="this.src='https://placehold.co/800x500/1a1a2e/009736?text={img.get('title','Image').replace(' ','+')}'">
-                        <div class="image-card-body">
-                            <div class="image-card-title">{img.get('title','')}</div>
-                            <div class="image-card-desc">{img.get('description','')}</div>
-                            <div class="image-card-category">{img.get('category','')}</div>
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-        else:
-            st.info(t("no_images", lang))
-
-    with tab4:
-        st.markdown(t("logs_title", lang))
-        for label, tn, data_key in zip(
-            t("log_labels", lang),
-            ["essay_writer_tool", "image_suggester_tool", "content_organizer_tool"],
-            ["essay", "images", "final_doc"],
-        ):
-            with st.expander(f"{label} — `{tn}`", expanded=False):
-                st.markdown(f"{t('tool_label', lang)} `{tn}`")
-                st.markdown(t("output_preview", lang))
-                preview = st.session_state.get(data_key, "")[:800]
-                st.code(preview + ("..." if len(preview) == 800 else ""), language="markdown")
-
-elif not st.session_state.get("running"):
-    st.markdown("---")
-    st.markdown(f"""
-    <div style="text-align:center; padding:3rem 2rem;">
-        <div style="font-size:1.3rem; font-weight:600; color:#f0f0f5; margin-bottom:0.5rem;">
-            {t("empty_title", lang)}
-        </div>
-        <div style="font-size:0.9rem; color:#8b8b9e; max-width:500px; margin:0 auto; line-height:1.8;">
-            {t("empty_desc", lang)}
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    render_cover(first_image(images))
+    article_class = "article rtl" if result.get("article_language") == "Arabic" else "article"
+    st.markdown(
+        f'<article class="{article_class}">{render_markdown(result["final_document"])}</article>',
+        unsafe_allow_html=True,
+    )
+    st.download_button(
+        text["download"],
+        result["final_document"],
+        file_name="palestine_article.md",
+        mime="text/markdown",
+    )

@@ -1,122 +1,120 @@
 """
-Orchestrator Agent
-------------------
-The master agent that coordinates the multi-agent workflow.
-Uses OpenRouter API via LangChain's ChatOpenAI.
+Multi-agent workflow for the Palestine content studio.
 """
 
-import os
-import json
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain.agents import AgentExecutor, create_tool_calling_agent
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from __future__ import annotations
 
-from tools.essay_tool import essay_writer_tool
-from tools.image_tool import image_suggester_tool
-from tools.organizer_tool import content_organizer_tool
+from collections.abc import Callable, Sequence
+from typing import Any
 
-OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+from langchain.agents import create_agent
+from langchain_core.messages import ToolMessage
+from langchain_core.tools import BaseTool
+
+from llm_config import build_chat_model
+from tools import content_organizer_tool, essay_writer_tool, image_suggester_tool
 
 
-def _build_agent() -> AgentExecutor:
-    """Build the orchestrator agent with all tools."""
-    llm = ChatOpenAI(
-        model=os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free"),
-        openai_api_key=os.getenv("OPENROUTER_API_KEY"),
-        openai_api_base=OPENROUTER_BASE_URL,
-        temperature=0.3,
-        default_headers={"HTTP-Referer": "https://falesai.app", "X-Title": "FalesAI"},
-    )
+def _agent(name: str, instruction: str, tools: Sequence[BaseTool], temperature: float) -> Any:
+    return create_agent(
+        model=build_chat_model(temperature),
+        tools=list(tools),
+        name=name.lower().replace(" ", "_"),
+        system_prompt=f"""You are {name} in a multi AI agentic content system.
+{instruction}
 
-    tools = [essay_writer_tool, image_suggester_tool, content_organizer_tool]
-
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", """You are a senior content production orchestrator managing a team of specialized AI agents.
-
-Your mission is to produce a comprehensive, publication-ready document on any given topic.
-
-You have access to three specialized tools:
-
-1. **essay_writer_tool** — Writes a detailed, well-researched essay on the topic.
-   Call this FIRST with the topic and desired word count.
-
-2. **image_suggester_tool** — Suggests relevant images with descriptions and URLs.
-   Call this SECOND with the topic.
-
-3. **content_organizer_tool** — Takes the essay and image suggestions and produces
-   a beautifully organized, polished final document.
-   Call this LAST, passing the essay and image suggestions.
-
-WORKFLOW (follow this exact order):
-Step 1: Call essay_writer_tool with the topic
-Step 2: Call image_suggester_tool with the topic
-Step 3: Call content_organizer_tool with the essay from Step 1 and images from Step 2
-Step 4: Return the final organized document from Step 3
-
-IMPORTANT: 
-- Always follow the 3-step workflow in order
-- Pass the FULL output of Steps 1 and 2 to Step 3
-- Return the complete final document from Step 3 as your final answer
-"""),
-        ("human", "{input}"),
-        MessagesPlaceholder(variable_name="agent_scratchpad"),
-    ])
-
-    agent = create_tool_calling_agent(llm, tools, prompt)
-
-    return AgentExecutor(
-        agent=agent,
-        tools=tools,
-        verbose=True,
-        max_iterations=10,
-        handle_parsing_errors=True,
-        return_intermediate_steps=True,
+You must use the provided tool before returning your answer.
+Return the useful tool result as your final answer without narrating the workflow.""",
     )
 
 
-def run_orchestrator(topic: str, word_count: int = 1500, progress_callback=None):
-    """Run the full content production pipeline."""
-    agent_executor = _build_agent()
+def _step(agent_name: str, executor: Any, instruction: str) -> dict[str, Any]:
+    result = executor.invoke({"messages": [{"role": "user", "content": instruction}]})
+    tool_messages = [message for message in result["messages"] if isinstance(message, ToolMessage)]
+    tool_message = tool_messages[-1] if tool_messages else result["messages"][-1]
+    tool_output = str(tool_message.content)
+    return {
+        "agent": agent_name,
+        "tool": getattr(tool_message, "name", None) or "no_tool_called",
+        "input": instruction,
+        "output": tool_output,
+        "output_preview": tool_output[:900],
+    }
 
-    user_input = (
-        f"Create a complete, publication-ready document about: {topic}. "
-        f"The essay should be approximately {word_count} words. "
-        f"Follow your 3-step workflow exactly."
-    )
 
+def _notify(progress_callback: Callable[[str, str], None] | None, phase: str, message: str) -> None:
     if progress_callback:
-        progress_callback("🚀 Orchestrator", "Starting the multi-agent pipeline...")
+        progress_callback(phase, message)
 
-    result = agent_executor.invoke({"input": user_input})
 
-    essay_text = ""
-    image_data = ""
-    steps_log = []
+def run_orchestrator(
+    topic: str,
+    word_count: int = 1200,
+    num_images: int = 6,
+    article_language: str = "English",
+    progress_callback: Callable[[str, str], None] | None = None,
+) -> dict[str, Any]:
+    """Run the three specialist agents and return their artifacts."""
+    essay_agent = _agent(
+        "Essay Writer Agent",
+        "Write a factual, clear essay for the requested topic and target length.",
+        [essay_writer_tool],
+        temperature=0.5,
+    )
+    image_agent = _agent(
+        "Image Curator Agent",
+        "Suggest suitable, respectful images that support the essay topic.",
+        [image_suggester_tool],
+        temperature=0.4,
+    )
+    organizer_agent = _agent(
+        "Content Organizer Agent",
+        "Organize the essay and image suggestions into a clear user-facing Markdown document.",
+        [content_organizer_tool],
+        temperature=0.3,
+    )
 
-    for step in result.get("intermediate_steps", []):
-        action, observation = step
-        tool_name = action.tool
-        steps_log.append({
-            "tool": tool_name,
-            "input": str(action.tool_input),
-            "output_preview": str(observation)[:500] + "..." if len(str(observation)) > 500 else str(observation),
-        })
-        if tool_name == "essay_writer_tool":
-            essay_text = observation
-            if progress_callback:
-                progress_callback("✍️ Essay Agent", "Essay written successfully!")
-        elif tool_name == "image_suggester_tool":
-            image_data = observation
-            if progress_callback:
-                progress_callback("🖼️ Image Agent", "Images curated successfully!")
-        elif tool_name == "content_organizer_tool":
-            if progress_callback:
-                progress_callback("📐 Organizer Agent", "Content organized successfully!")
+    _notify(progress_callback, "essay_started", "وكيل كتابة المقالة يكتب النص الأساسي.")
+    essay_step = _step(
+        "Essay Writer Agent",
+        essay_agent,
+        f"Write an essay about {topic} with approximately {word_count} words in {article_language}.",
+    )
+    _notify(progress_callback, "essay_done", "اكتملت مسودة المقالة.")
+
+    _notify(progress_callback, "images_started", "وكيل الصور يبحث عن صور مناسبة لفقرات المقالة.")
+    image_step = _step(
+        "Image Curator Agent",
+        image_agent,
+        f"""Suggest {num_images} suitable images for this essay about {topic}.
+Choose images that support specific passages, themes, places, or cultural details in the essay.
+
+Essay:
+{essay_step["output"]}""",
+    )
+    _notify(progress_callback, "images_done", "اكتمل اختيار الصور المناسبة.")
+
+    _notify(progress_callback, "organizer_started", "وكيل تنظيم المحتوى ينسق النص والصور.")
+    organizer_step = _step(
+        "Content Organizer Agent",
+        organizer_agent,
+        f"""Organize this content for the user.
+
+Essay:
+{essay_step["output"]}
+
+Image suggestions:
+{image_step["output"]}
+
+Final article language:
+{article_language}""",
+    )
+    _notify(progress_callback, "organizer_done", "اكتملت النسخة النهائية للمقالة.")
 
     return {
-        "final_document": result.get("output", ""),
-        "essay": essay_text,
-        "images": image_data,
-        "steps": steps_log,
+        "essay": essay_step["output"],
+        "images": image_step["output"],
+        "final_document": organizer_step["output"],
+        "article_language": article_language,
+        "steps": [essay_step, image_step, organizer_step],
     }
