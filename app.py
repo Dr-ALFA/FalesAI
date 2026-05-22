@@ -12,6 +12,7 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from agents import run_orchestrator
+from llm_config import has_chat_credentials
 
 load_dotenv()
 
@@ -42,6 +43,7 @@ UI_TEXT = {
         "ready": "المقالة جاهزة.",
         "empty": "ستظهر المقالة المصورة هنا بعد إنشائها.",
         "download": "تحميل المقالة",
+        "missing_key": "يلزم إضافة مفتاح Ollama Cloud في إعدادات التطبيق قبل إنشاء المقالة.",
         "done_essay": "اكتملت مسودة المقالة.",
         "done_images": "اكتمل اختيار الصور المناسبة.",
         "done_editor": "اكتملت النسخة النهائية للمقالة.",
@@ -73,6 +75,7 @@ UI_TEXT = {
         "ready": "Article ready.",
         "empty": "The illustrated article will appear here after it is created.",
         "download": "Download article",
+        "missing_key": "Add the Ollama Cloud API key to the app settings before creating an article.",
         "done_essay": "The article draft is complete.",
         "done_images": "The image selection is complete.",
         "done_editor": "The final article is ready.",
@@ -369,7 +372,11 @@ with controls:
     num_images = st.slider(text["images"], 2, 7, 4)
     button_label = text["create"] if not result else text["recreate"]
     generate = st.button(button_label, type="primary", use_container_width=True)
+    if not has_chat_credentials():
+        st.warning(text["missing_key"])
     if generate:
+        if not has_chat_credentials():
+            st.stop()
         progress_labels = {
             "essay_started": text["phase_essay"],
             "images_started": text["phase_images"],

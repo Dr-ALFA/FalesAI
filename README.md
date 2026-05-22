@@ -113,7 +113,17 @@ AI_MODEL=gpt-oss:20b
 
 يمكن نسخ القيم من ملف `.env.example` إلى ملف `.env` ثم وضع مفتاح Ollama Cloud الخاص بك.
 
-3. تشغيل التطبيق:
+3. عند النشر على Streamlit Community Cloud، توضع القيم نفسها في قسم **Secrets** داخل إعدادات التطبيق:
+
+```toml
+AI_API_KEY = "your_ollama_cloud_api_key"
+AI_BASE_URL = "https://ollama.com/v1"
+AI_MODEL = "gpt-oss:20b"
+```
+
+لا ترفع ملف `.env` أو أي مفتاح API إلى GitHub.
+
+4. تشغيل التطبيق:
 
 ```bash
 streamlit run app.py --server.port 8502
